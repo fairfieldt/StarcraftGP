@@ -8,14 +8,39 @@ import java.net.SocketException;
 
 import starcraftbot.proxybot.bot.GPStarCraftBot;
 import starcraftbot.proxybot.bot.StarCraftBot;
+
+import java.util.*;
+import starcraftbot.proxybot.bot.*;
+
+import java.io.*;
 /**
  * ProxyBot.
  * 
  * Manages socket connections with StarCraft and handles the
  * agent <-> StarCraft communication.
  */
+ 
+class FitnessComparator implements Comparator
+{
+	public int compare(Object o1, Object o2)
+	{
+		return ((Chromosome)o1).getFitness() - ((Chromosome)o2).getFitness();
+	}
+	
+	public boolean equals(Object o1, Object o2)
+	{
+		return ((Chromosome)o1).getFitness() == ((Chromosome)o2).getFitness();
+	}
+}
 public class ProxyBot {
 
+
+	public static int POPULATION_SIZE = 50;
+	/** speed for the game to run 0 (fastest) to 100 (slowest) */
+	public static int GAMESPEED = 0;
+	
+	public static int TIMETORUN = 8000;
+	
 	/** port to start the server socket on */
 	public static int port = 12345;
 	
@@ -26,7 +51,7 @@ public class ProxyBot {
 	public static boolean completeInformation = false;
 
 	/** display agent commands in SC? */
-	public static boolean logCommands = true;
+	public static boolean logCommands = false;
 
 	/** display agent commands in SC? */
 	public static boolean terrainAnalysis = false;
@@ -34,14 +59,19 @@ public class ProxyBot {
 	/** display the GUI? */
 	public static boolean showGUI = false;
 
-	public static boolean showSpeedPanel = true;
+	public static boolean showSpeedPanel = false;
+	
+	public static boolean firstRun = true;
+
+	public static ArrayList<Chromosome> chromosomes = new ArrayList<Chromosome>();
+	public static ArrayList<ZealotActor> children = new ArrayList<ZealotActor>();
+	
+	public static int runCount = 0;
+	public static int generationCount = 0;
 	
 	public static void main(String[] args) 
 	{
-		while (true)
-		{
-			new ProxyBot().start();
-		}
+		new ProxyBot().start();
 	}
 
 	/**
@@ -59,13 +89,116 @@ public class ProxyBot {
 			    
 			    System.out.println("Client connected");		    
 			    runGame(clientSocket);
+				if (++runCount >= POPULATION_SIZE)
+				{
+					runCount = 0;
+					firstRun = false;
+					System.out.println("Finished a population run");
+					try
+					{
+						evolve();
+					}
+					catch (Exception e)
+					{
+						System.out.println(e);
+					}
+					FileWriter fw = new FileWriter("log.txt", true);
+					BufferedWriter bw = new BufferedWriter(fw);
+					int bestFitness = 0;
+					int avgFitness = 0;
+					for (Chromosome c : chromosomes)
+					{
+						avgFitness += c.getFitness();
+						if (c.getFitness() > bestFitness)
+						{
+							bestFitness = c.getFitness();
+						}
+					}
+					avgFitness /= chromosomes.size();
+					bw.write("Generation " + generationCount + " finished.  The best fitness was " + bestFitness + " and the average fitness was " + avgFitness +"\n");
+					bw.close();
+					
+					saveChromosomes();
+					generationCount++;
+				}	
+				System.out.println("Runcount: " + runCount);
 		    }
 		}
 		catch (Exception e) {
 			e.printStackTrace();
 		}
 	}	
+	private void saveChromosomes()
+	{
+		// Write the top 25% of chromosomes to disk
+		for (int i = 0; i < POPULATION_SIZE/4; i++)
+		{
+			String fileName = "chromosome" + generationCount + "-" + i;
+			FileOutputStream fos = null;
+			ObjectOutputStream out = null;
+			try
+			{
+				fos = new FileOutputStream(fileName);
+				out = new ObjectOutputStream(fos);
+				out.writeObject(chromosomes.get(i));
+				out.close();
+			}
+			catch(IOException ex)
+			{
+				ex.printStackTrace();
+			}
+		}
+	}
+	private void evolve()
+	{
+		System.out.println("We have " + chromosomes.size() + " chromosomes");
+		
+		// Now get the top and bottom 25%
+		
+		//First sort
+		Collections.sort(chromosomes, new FitnessComparator());
+		ArrayList<Chromosome> top = new ArrayList<Chromosome>();
+		ArrayList<Chromosome> bottom = new ArrayList<Chromosome>();
+		for (int i = 0; i < chromosomes.size() / 4; i++)
+		{
+			bottom.add(chromosomes.get(i));
+			top.add(chromosomes.get(chromosomes.size()-i-1));
+			System.out.println("Top: " + top.get(i).getFitness() + " Bottom: " + bottom.get(i).getFitness());
+		}
+		
+		// Keep the top 25%
+		for (int i = 0; i < top.size(); i++)
+		{
+			chromosomes.set(i, top.get(i));
+		}
+		// Mutate the top 25% and put them in the new pop.
+		for (int i = 0; i < top.size(); i++)
+		{
+			for (Chromosome c : top)
+			{
+				c.mutate();
+				chromosomes.set((POPULATION_SIZE / 4) + i, c);
+			}
+		}
+		// Crossover the top and bottom 25% randomly and put the result in the population.
+		ArrayList<Chromosome> combo = new ArrayList<Chromosome>();
+		combo.addAll(top);
+		combo.addAll(bottom);
+		Collections.shuffle(combo);
+		
+		for (int i = 0; i < POPULATION_SIZE /4; i++)
+		{
+			chromosomes.set((POPULATION_SIZE/2) + i, crossover(combo.get(i), combo.get(combo.size() -1 -i)));
+		}
+		
+	}
 	
+	public Chromosome crossover(Chromosome c1, Chromosome c2)
+	{
+		return c1.crossover(c2);
+	}
+	
+
 	/**
 	 * Manages communication with StarCraft.
 	 */
@@ -109,7 +242,7 @@ public class ProxyBot {
 	    		speedPanel = new SpeedPanel(game);
 	    	}
 	    	else {
-	    		game.getCommandQueue().setGameSpeed(0);
+	    		game.getCommandQueue().setGameSpeed(GAMESPEED);
 	    	}
 	    	
 	    	// 4. game updates
@@ -145,7 +278,7 @@ public class ProxyBot {
 		    			}
 	    			}
 					
-					if (elapsedTime >= 10000)
+					if (elapsedTime >= TIMETORUN || game.getPlayerUnits().size() == 0)
 					{
 						System.out.println("Restarting");
 						game.getCommandQueue().restart();

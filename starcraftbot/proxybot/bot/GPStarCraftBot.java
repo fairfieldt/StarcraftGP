@@ -4,15 +4,20 @@ import starcraftbot.proxybot.Game;
 import starcraftbot.proxybot.Constants.Order;
 import starcraftbot.proxybot.Constants.Race;
 import starcraftbot.proxybot.wmes.UnitTypeWME;
+
 import starcraftbot.proxybot.wmes.UnitTypeWME.UnitType;
 import starcraftbot.proxybot.wmes.unit.UnitWME;
 import starcraftbot.proxybot.wmes.unit.*;
 
+import starcraftbot.proxybot.bot.actions.*;
 
 import starcraftbot.chromosome.*;
 
+import starcraftbot.proxybot.*;
+
 
 import java.util.*;
+import java.io.*;
 /**
  * Example implementation of the StarCraftBot.
  * 
@@ -24,7 +29,15 @@ public class GPStarCraftBot implements StarCraftBot {
 	/** specifies that the agent is running */
 	boolean running = true;
 	private Game game;
-	private ArrayList<Thread> unitThreads;
+	private  ArrayList<Thread> actorThreads;
+	
+	private static ArrayList<PlayerUnitWME> myUnits;
+	private static ArrayList<EnemyUnitWME> enemyUnits;
+	
+	
+	/* score stuff*/
+	int enemiesLeft = 0;
+	int unitsLeft = 0;
 	/**
 	 * Starts the bot.
 	 * 
@@ -33,25 +46,45 @@ public class GPStarCraftBot implements StarCraftBot {
 	public void start(Game game) 
 	{
 		this.game = game;
-		Node.game = game;
-		// run until told to exit
+		Action.game = game;
+
 		ArrayList<PlayerUnitWME> units =  game.getPlayerUnits();
-		System.out.println("Got " + units.size() + " units.");
-		unitThreads = new ArrayList<Thread>();
-		Chromosome c = new Chromosome(units.size(), units);
-		System.out.println("Got a chromosome");
-		for (int i = 0; i < units.size(); i++)
+
+		//This means it's the first run and the chromosomes need to be seeded
+		if (ProxyBot.firstRun)
 		{
-			ZealotActor actor = new ZealotActor(c.get(i));
-			Thread t = new Thread(actor);
+			Chromosome c = new Chromosome();
+			for (int i = 0; i < units.size(); i++)
+			{
+				
+				ZealotActor actor = new ZealotActor(game, i+1);
+				c.addActor(actor);
+			}
+			ProxyBot.chromosomes.add(c);
+		}
+		//Otherwise just update the existing ones with the new game state and unit
+		else
+		{
+			for (int i = 0; i < units.size(); i++)
+			{
+				ProxyBot.chromosomes.get(ProxyBot.runCount).getActor(i).update(game, (i % 9) + 1);
+			}
+		}
+		
+		actorThreads = new ArrayList<Thread>();
+		for (int i = 0; i <  + units.size(); i++)
+		{
+			Thread t = new Thread(ProxyBot.chromosomes.get(ProxyBot.runCount).getActor(i));
+			actorThreads.add(t);
+		}
+		for(Thread t : actorThreads)
+		{
 			t.start();
-			System.out.println("Started thread " + i);
-			unitThreads.add(t);
 		}
 		while (running) 
 		{
 			try {
-				Thread.sleep(1000);
+				Thread.sleep(100);
 			}
 			catch (Exception e) {}	
 			
@@ -63,10 +96,46 @@ public class GPStarCraftBot implements StarCraftBot {
 	 */
 	public void stop() 
 	{
-		for (Thread t : unitThreads)
+		for (Thread t : actorThreads)
 		{
 			t.stop();
 		}
+		calculateScore();
+		updateFitness();
+		writeLog();
+		System.out.println(unitsLeft + " friendly units left");
+		System.out.println(enemiesLeft + " enemy units left");
 		running = false;
+	}
+	private void updateFitness()
+	{
+		int fitness = (9 - enemiesLeft) * 10;
+		if (enemiesLeft == 0)
+		{
+			fitness += unitsLeft * 10;
+		}
+			ProxyBot.chromosomes.get(ProxyBot.runCount).setFitness(fitness);
+	}
+	private void calculateScore()
+	{
+		unitsLeft = game.getPlayer().getMinerals();
+		enemiesLeft = 9 - game.getPlayer().getGas();
+		
+	}
+	
+	private void writeLog()
+	{
+		try
+		{
+			FileWriter writer = new FileWriter("log.txt", true);
+			BufferedWriter bw = new BufferedWriter(writer);
+			bw.write("Generation " + ProxyBot.generationCount + ", run " + ProxyBot.runCount + " had a fitness of " + ProxyBot.chromosomes.get(ProxyBot.runCount).getFitness() + "\n");
+			bw.write("It had " + unitsLeft + " units left." + "\n");
+			bw.close();
+		}
+		catch (Exception e)
+		{
+			System.out.println(e);
+		}
 	}
 }
