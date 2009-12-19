@@ -51,6 +51,26 @@ public class GPStarCraftBot implements StarCraftBot {
 		ArrayList<PlayerUnitWME> units =  game.getPlayerUnits();
 
 		//This means it's the first run and the chromosomes need to be seeded
+		if (ProxyBot.best != "-1")
+		{
+			String fileName = "chromosome-" + ProxyBot.best;
+			Chromosome c = null;
+			FileInputStream fis = null;
+			ObjectInputStream in = null;
+			try
+			{
+				fis = new FileInputStream(fileName);
+				in = new ObjectInputStream(fis);
+				c = (Chromosome)in.readObject();
+				in.close();
+			}
+			catch (Exception e)
+			{
+				e.printStackTrace();
+			}
+			ProxyBot.chromosomes.add(c);
+			ProxyBot.firstRun = false;
+		}
 		if (ProxyBot.firstRun)
 		{
 			Chromosome c = new Chromosome();
@@ -70,6 +90,7 @@ public class GPStarCraftBot implements StarCraftBot {
 				ProxyBot.chromosomes.get(ProxyBot.runCount).getActor(i).update(game, (i % 9) + 1);
 			}
 		}
+		CoordAction.game = game;
 		
 		actorThreads = new ArrayList<Thread>();
 		for (int i = 0; i <  + units.size(); i++)
@@ -102,7 +123,7 @@ public class GPStarCraftBot implements StarCraftBot {
 		}
 		calculateScore();
 		updateFitness();
-		writeLog();
+		//writeLog();
 		System.out.println(unitsLeft + " friendly units left");
 		System.out.println(enemiesLeft + " enemy units left");
 		running = false;

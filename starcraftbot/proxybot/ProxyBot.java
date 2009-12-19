@@ -24,7 +24,7 @@ class FitnessComparator implements Comparator
 {
 	public int compare(Object o1, Object o2)
 	{
-		return ((Chromosome)o1).getFitness() - ((Chromosome)o2).getFitness();
+		return ((Chromosome)o2).getFitness() - ((Chromosome)o1).getFitness();
 	}
 	
 	public boolean equals(Object o1, Object o2)
@@ -35,11 +35,12 @@ class FitnessComparator implements Comparator
 public class ProxyBot {
 
 
-	public static int POPULATION_SIZE = 50;
+	public static int POPULATION_SIZE = 8;
 	/** speed for the game to run 0 (fastest) to 100 (slowest) */
 	public static int GAMESPEED = 0;
 	
-	public static int TIMETORUN = 8000;
+	public static int TIMETORUN = 4000;
+	public static int TIMETORUN2 = 8000;
 	
 	/** port to start the server socket on */
 	public static int port = 12345;
@@ -69,8 +70,15 @@ public class ProxyBot {
 	public static int runCount = 0;
 	public static int generationCount = 0;
 	
+	private long starting;
+	public static String best = "-1";
+	
 	public static void main(String[] args) 
 	{
+		if (args.length > 0)
+		{
+			best = args[0];
+		}
 		new ProxyBot().start();
 	}
 
@@ -82,30 +90,37 @@ public class ProxyBot {
 	public void start() {
 		try {			
 		    ServerSocket serverSocket = new ServerSocket(port);
-		    
+		    starting = System.currentTimeMillis();
 		    while (true) {
-			    System.out.println("Waiting for client connection");
 			    Socket clientSocket = serverSocket.accept();			
-			    
-			    System.out.println("Client connected");		    
+			  	if (best.equals("-1"))
+				{
+					//nothing
+				}
+				else
+				{
+					runCount = 0;
+					GAMESPEED = 60;
+					TIMETORUN = 120000;
+					TIMETORUN2 = 120000;
+				}  
 			    runGame(clientSocket);
+				
 				if (++runCount >= POPULATION_SIZE)
 				{
 					runCount = 0;
 					firstRun = false;
-					System.out.println("Finished a population run");
-					try
-					{
-						evolve();
-					}
-					catch (Exception e)
-					{
-						System.out.println(e);
-					}
+					float time = (System.currentTimeMillis() - starting)/1000F;
+					starting = System.currentTimeMillis();
+
+					System.out.println("Finished a population run in : " + time);
+					//First sort
+					Collections.sort(chromosomes, new FitnessComparator());
+					saveChromosome();
 					FileWriter fw = new FileWriter("log.txt", true);
 					BufferedWriter bw = new BufferedWriter(fw);
 					int bestFitness = 0;
-					int avgFitness = 0;
+					float avgFitness = 0;
 					for (Chromosome c : chromosomes)
 					{
 						avgFitness += c.getFitness();
@@ -115,12 +130,21 @@ public class ProxyBot {
 						}
 					}
 					avgFitness /= chromosomes.size();
-					bw.write("Generation " + generationCount + " finished.  The best fitness was " + bestFitness + " and the average fitness was " + avgFitness +"\n");
-					bw.close();
+					bw.write("Generation " + generationCount + " finished in " + time + " seconds.  The best fitness was " + bestFitness + " and the average fitness was " + avgFitness +"\n");
 					
-					saveChromosomes();
+					try
+					{
+						evolve();
+					}
+					catch (Exception e)
+					{
+						e.printStackTrace();
+					}
 					generationCount++;
+					bw.close();
+
 				}	
+
 				System.out.println("Runcount: " + runCount);
 		    }
 		}
@@ -128,70 +152,73 @@ public class ProxyBot {
 			e.printStackTrace();
 		}
 	}	
-	private void saveChromosomes()
+	private void saveChromosome()
 	{
-		// Write the top 25% of chromosomes to disk
-		for (int i = 0; i < POPULATION_SIZE/4; i++)
+		System.out.println("Saving a chromosome with fitness " + chromosomes.get(0).getFitness());
+		String fileName = "chromosome-" + generationCount;
+		FileOutputStream fos = null;
+		ObjectOutputStream out = null;
+		try
 		{
-			String fileName = "chromosome" + generationCount + "-" + i;
-			FileOutputStream fos = null;
-			ObjectOutputStream out = null;
-			try
-			{
-				fos = new FileOutputStream(fileName);
-				out = new ObjectOutputStream(fos);
-				out.writeObject(chromosomes.get(i));
-				out.close();
-			}
-			catch(IOException ex)
-			{
+			fos = new FileOutputStream(fileName);
+			out = new ObjectOutputStream(fos);
+			out.writeObject(chromosomes.get(0));
+			out.close();
+		}
+		catch(IOException ex)
+		{
 				ex.printStackTrace();
-			}
 		}
 	}
 	private void evolve()
-	{
-		System.out.println("We have " + chromosomes.size() + " chromosomes");
-		
-		// Now get the top and bottom 25%
-		
-		//First sort
-		Collections.sort(chromosomes, new FitnessComparator());
+	{		
+
+		ArrayList<Chromosome> newPopulation = new ArrayList<Chromosome>();
+		//get the top and bottom halves
 		ArrayList<Chromosome> top = new ArrayList<Chromosome>();
 		ArrayList<Chromosome> bottom = new ArrayList<Chromosome>();
+		for (int i = 0; i < chromosomes.size() / 2; i++)
+		{
+			top.add(chromosomes.get(i));
+			bottom.add(chromosomes.get(chromosomes.size()-i-1));
+		}
+
+		//Keep the top 50%
+		for (Chromosome c : top)
+		{
+			newPopulation.add(new Chromosome(c));
+		}
+		
+		//mutate the top 25% and put them in
 		for (int i = 0; i < chromosomes.size() / 4; i++)
 		{
-			bottom.add(chromosomes.get(i));
-			top.add(chromosomes.get(chromosomes.size()-i-1));
-			System.out.println("Top: " + top.get(i).getFitness() + " Bottom: " + bottom.get(i).getFitness());
+
+			Chromosome c =  new Chromosome(chromosomes.get(i));
+			c.mutate();
+			newPopulation.add(c);
 		}
 		
-		// Keep the top 25%
-		for (int i = 0; i < top.size(); i++)
-		{
-			chromosomes.set(i, top.get(i));
-		}
-		// Mutate the top 25% and put them in the new pop.
-		for (int i = 0; i < top.size(); i++)
-		{
-			for (Chromosome c : top)
-			{
-				c.mutate();
-				chromosomes.set((POPULATION_SIZE / 4) + i, c);
-			}
-		}
-		// Crossover the top and bottom 25% randomly and put the result in the population.
-		ArrayList<Chromosome> combo = new ArrayList<Chromosome>();
-		combo.addAll(top);
-		combo.addAll(bottom);
-		Collections.shuffle(combo);
 		
-		for (int i = 0; i < POPULATION_SIZE /4; i++)
+		//Now do some crossover on a random 25%
+		ArrayList<Integer> rnd = new ArrayList<Integer>();
+		for (int i = 0; i < chromosomes.size() / 2; i++)
 		{
-			chromosomes.set((POPULATION_SIZE/2) + i, crossover(combo.get(i), combo.get(combo.size() -1 -i)));
+			rnd.add(i);
+		}
+		Collections.shuffle(rnd);
+		for (int i = 0; i < rnd.size()-1; i++)
+		{
+			int c1 = rnd.get(i++);
+			int c2 = rnd.get(i);
+			
+			Chromosome c = crossover(chromosomes.get(c1), chromosomes.get(c2));
+			newPopulation.add(c);
 		}
 		
+		chromosomes = newPopulation;
+
 	}
+	
 	
 	public Chromosome crossover(Chromosome c1, Chromosome c2)
 	{
@@ -214,7 +241,6 @@ public class ProxyBot {
 	    	String playerData = reader.readLine();
 	
 	    	// 2. respond with bot options
-	    	System.out.println("Sending bot options");
 	    	String botOptions = (allowUserControl ? "1" : "0") 
 	    					  + (completeInformation ? "1" : "0")
 	    					  + (logCommands ? "1" : "0")
@@ -233,7 +259,6 @@ public class ProxyBot {
 	    		basesData = reader.readLine();
 	    	}
 
-	    	System.out.println("Game starting");
 	    	final Game game = new Game(playerData, locationData, mapData, chokesData, basesData);
 	    	boolean firstFrame = true;
 	    	
@@ -247,7 +272,6 @@ public class ProxyBot {
 	    	
 	    	// 4. game updates
 			long startTime = System.currentTimeMillis();
-			System.out.println("Start time: " + startTime);
 			boolean running = true;
 			Thread botThread = null;
 	    	while (running) 
@@ -278,7 +302,7 @@ public class ProxyBot {
 		    			}
 	    			}
 					
-					if (elapsedTime >= TIMETORUN || game.getPlayerUnits().size() == 0)
+					if (elapsedTime >= TIMETORUN2 || game.getPlayerUnits().size() == 0 || ( elapsedTime >= TIMETORUN && game.getEnemyUnits().size() == 0))
 					{
 						System.out.println("Restarting");
 						game.getCommandQueue().restart();

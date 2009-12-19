@@ -15,17 +15,14 @@ import starcraftbot.proxybot.bot.actions.*;
 import starcraftbot.proxybot.command.Command.StarCraftCommand;
 
 import java.util.*;
-public class ZealotActor implements Runnable 
+public class ZealotActor implements Serializable, Runnable 
 {
-	private Game game;
+	transient private Game game;
 	private int unitNumber;
 	private int lastHealth = 0;
-	private EventResponder enemyInViewEventResponder;
-	private EventResponder healthEventResponder;
-	private EventResponder friendNearEventResponder;
-
+	
 	private int runDist = 2;
-	private EnemyUnitWME target = null;
+	transient private EnemyUnitWME target = null;
 	
 	private Random r;
 	
@@ -45,6 +42,24 @@ public class ZealotActor implements Runnable
 		r = new Random(unitNumber * System.currentTimeMillis());
 		
     }
+	
+	public ZealotActor(ZealotActor z)
+	{
+		this.unitNumber = z.getUnitNumber();
+		try
+		{
+			this.noTargetAction = (Action) z.getNoTargetAction().clone();
+			this.targetAction = (Action) z.getTargetAction().clone();
+			this.healthLowAction = (Action) z.getHealthLowAction().clone();
+			this.friendNotNearAction = (Action) z.getFriendNotNearAction().clone();
+			
+		}
+		catch (Exception e) {System.out.println("Copying an actor");System.out.println(e);}
+		r = new Random(unitNumber * System.currentTimeMillis());
+
+		
+		
+	}
  
     public void run()
     {
@@ -60,7 +75,7 @@ public class ZealotActor implements Runnable
 			PlayerUnitWME unit = getPlayerUnit(unitNumber);
 			if (unit == null)
 			{
-				System.out.println("Unit " + unitNumber + " died");
+				System.out.println("Unit " + unitNumber + " is dead");
 				return;
 			}
 			updateActions(unit);
@@ -77,11 +92,14 @@ public class ZealotActor implements Runnable
         }
     }
 	
-	
+
 	private void firstRunSetup()
 	{
-		noTargetAction = getAction(getPlayerUnit(unitNumber));
-		targetAction = getAction(getPlayerUnit(unitNumber));
+		Action a1 = new MoveToPositionAction(getPlayerUnit(unitNumber), new NumCoordAction(2), new NumCoordAction(1));
+		Action a2 = new AttackAction(getPlayerUnit(unitNumber));
+
+		noTargetAction = a1;//getAction(getPlayerUnit(unitNumber));
+		targetAction = a2;//getAction(getPlayerUnit(unitNumber));
 		healthOKAction = getAction(getPlayerUnit(unitNumber));
 		healthLowAction = getAction(getPlayerUnit(unitNumber));
 		friendNearAction = getAction(getPlayerUnit(unitNumber));
@@ -196,9 +214,7 @@ public class ZealotActor implements Runnable
 	{
 		noTargetAction.update(unit);
 		targetAction.update(unit);
-		healthOKAction.update(unit);
 		healthLowAction.update(unit);
-		friendNearAction.update(unit);
 		friendNotNearAction.update(unit);
 	}
 	
@@ -209,7 +225,7 @@ public class ZealotActor implements Runnable
 		switch (choice)
 		{
 			case 0:
-				int coord[] = getCoords(unit);
+				CoordAction coord[] = getCoords(unit);
 				a = new MoveToPositionAction(unit, coord[0], coord[1]);
 				break;
 			case 1:
@@ -219,78 +235,42 @@ public class ZealotActor implements Runnable
 		return a;
 	}
 	
-	private int[] getCoords(PlayerUnitWME unit)
+	private CoordAction[] getCoords(PlayerUnitWME unit)
 	{
-		return new int[]{getCoord(unit), getCoord(unit)};
+		return new CoordAction[]{getCoord(unit), getCoord(unit)};
 	}
 	
-	private int getCoord(PlayerUnitWME unit)
+	private CoordAction getCoord(PlayerUnitWME unit)
 	{
 		int choice = r.nextInt(10);
 		
 		switch (choice)
 		{
 			case 0:
-				return 2;
+				return new NumCoordAction(2);
 			case 1:
-				return -2;
+				return new NumCoordAction(-2);
 			case 2:
-				return 1;
+				return new NumCoordAction(1);
 			case 3:
-				return -1;
+				return new NumCoordAction(-1);
 			case 4:
-				return getClosestFriend(unit).getX() - unit.getX();
+				return new FriendXAction(unit);
 			case 5:
-				return getClosestFriend(unit).getY() - unit.getY();
+				return new FriendYAction(unit);
 			case 6:
-				if (getClosestEnemy(unit) != null)
-				{
-					return getClosestEnemy(unit).getX() - unit.getX();
-				}
+				return new EnemyXAction(unit);
 			case 7:
-				if (getClosestEnemy(unit) != null)
-				{
-					return getClosestEnemy(unit).getY() -unit.getY();
-				}
+				return new EnemyYAction(unit);
 			case 8:
-				return r.nextInt(5);
+				return new NumCoordAction(r.nextInt(5));
 			default:
-				return 0-r.nextInt(5);
+				return new NumCoordAction(0-r.nextInt(5));
 		}			
 	}
 	
 	
-	private EnemyUnitWME getClosestEnemy(PlayerUnitWME unit)
-	{
-		double distance = 1000;
-		for (EnemyUnitWME e: game.getEnemyUnits())
-		{
-			double d = unit.distance(e);
-			if (d < distance)
-			{
-				d = distance;
-				target = e;
-			}
-		}
-		
-		return target;
-	}
-	
-	private PlayerUnitWME getClosestFriend(PlayerUnitWME unit)
-	{
-		double distance = 1000;
-		PlayerUnitWME target = null;
-		for (PlayerUnitWME p : game.getPlayerUnits())
-		{
-			double d = unit.distance(p);
-			if (d < distance && d != 0)
-			{
-				d = distance;
-				target = p;
-			}
-		}
-		return target;
-	}
+
 	public void update(Game game, int unitNumber)
 	{
 		this.game = game;
@@ -325,5 +305,11 @@ public class ZealotActor implements Runnable
 		}
 		return false;
 	}
+	
+	public int getUnitNumber()
+	{
+		return unitNumber;
+	}
 }
+
  
